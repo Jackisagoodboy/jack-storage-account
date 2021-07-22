@@ -16,6 +16,12 @@
 using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using Azure;
+using Azure.Identity;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Azure.Storage.Blobs.Specialized;
+using Azure.Storage.Sas;
 using Microsoft.IdentityModel.Clients.ActiveDirectory;
 using Microsoft.Azure.Management.Resources;
 using Microsoft.Azure.Management.Resources.Models;
@@ -37,10 +43,10 @@ namespace AzureStorageNew
     public class StorageAccountTests
     {
         // You can locate your subscription ID on the Subscriptions blade of the Azure Portal (https://portal.azure.com).
-        const string subscriptionId = "<subscriptionId>";
+        const string subscriptionId = "";
 
         //Specify a resource group name of your choice. Specifying a new value will create a new resource group.
-        const string rgName = "TestResourceGroup";        
+        const string rgName = "";        
         
         //Storage Account Name. Using random value to avoid conflicts.  Replace this with a storage account of your choice.
         static string accountName = "storagesample" + Guid.NewGuid().ToString().Substring(0,8);
@@ -52,13 +58,13 @@ namespace AzureStorageNew
         // Creating the service principal will generate the values you need to specify for the constansts below.
 
         // Use the values generated when you created the Azure service principal.
-        const string applicationId = "<applicationId>";
-        const string password = "<password>";
-        const string tenantId = "<tenantId>";
+        const string applicationId = "";
+        const string password = "";
+        const string tenantId = "";
 
         // These values are used by the sample as defaults to create a new storage account. You can specify any location and any storage account type.
         const string DefaultLocation = "westus"; 
-        public static Sku DefaultSku = new Sku(SkuName.StandardGRS);
+        public static Sku DefaultSku = new Sku(Microsoft.Azure.Management.Storage.Models.SkuName.StandardGRS);
         public static Dictionary<string, string> DefaultTags = new Dictionary<string, string> 
         {
             {"key1","value1"},
@@ -82,9 +88,11 @@ namespace AzureStorageNew
             return token;
         }
 
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
+            Console.WriteLine("in the main ");
             string token = GetAuthorizationHeader().Result;
+            Console.WriteLine("token: " + token);
             TokenCredentials credential = new TokenCredentials(token);
             ResourceManagementClient resourcesClient = new ResourceManagementClient(credential) { SubscriptionId = subscriptionId };
             StorageManagementClient storageMgmtClient = new StorageManagementClient(credential) { SubscriptionId = subscriptionId };
@@ -95,39 +103,54 @@ namespace AzureStorageNew
                 RegisterStorageResourceProvider(resourcesClient);
 
                 //Create a new resource group
-                CreateResourceGroup(rgName, resourcesClient);
+                //CreateResourceGroup(rgName, resourcesClient);
+                //Console.WriteLine("create resource group");
 
                 //Create a new account in a specific resource group with the specified account name                     
-                CreateStorageAccount(rgName, accountName, storageMgmtClient);
+                //CreateStorageAccount(rgName, accountName, storageMgmtClient);
+                //Console.WriteLine("create storage account ");
+
+                //CreateBlobContainer(rgName, accountName, "blobcontainer1", storageMgmtClient);
 
                 //Get all the account properties for a given resource group and account name
-                StorageAccount storAcct = storageMgmtClient.StorageAccounts.GetProperties(rgName, accountName);
+                // StorageAccount storAcct = storageMgmtClient.StorageAccounts.GetProperties(rgName, accountName);
 
                 //Get a list of storage accounts within a specific resource group
-                IEnumerable<StorageAccount> storAccts = storageMgmtClient.StorageAccounts.ListByResourceGroup(rgName);
+                // IEnumerable<StorageAccount> storAccts = storageMgmtClient.StorageAccounts.ListByResourceGroup(rgName);
 
                 //Get all the storage accounts for a given subscription
-                IEnumerable<StorageAccount> storAcctsSub = storageMgmtClient.StorageAccounts.List();
+                // IEnumerable<StorageAccount> storAcctsSub = storageMgmtClient.StorageAccounts.List();
 
                 //Get the storage account keys for a given account and resource group
-                IList<StorageAccountKey> acctKeys = storageMgmtClient.StorageAccounts.ListKeys(rgName, accountName).Keys;
+                // IList<StorageAccountKey> acctKeys = storageMgmtClient.StorageAccounts.ListKeys(rgName, accountName).Keys;
 
                 //Regenerate the account key for a given account in a specific resource group
-                IList<StorageAccountKey> regenAcctKeys = storageMgmtClient.StorageAccounts.RegenerateKey(rgName, accountName, "key1").Keys;
+                // IList<StorageAccountKey> regenAcctKeys = storageMgmtClient.StorageAccounts.RegenerateKey(rgName, accountName, "key1").Keys;
 
                 //Update the storage account for a given account name and resource group
-                UpdateStorageAccountSku(rgName, accountName, SkuName.StandardLRS, storageMgmtClient);
+                // UpdateStorageAccountSku(rgName, accountName, SkuName.StandardLRS, storageMgmtClient);
 
                 //Check if the account name is available
-                bool? nameAvailable = storageMgmtClient.StorageAccounts.CheckNameAvailability(accountName).NameAvailable;
-                
-                //Delete a storage account with the given account name and a resource group
-                DeleteStorageAccount(rgName, accountName, storageMgmtClient);
+                // bool? nameAvailable = storageMgmtClient.StorageAccounts.CheckNameAvailability(accountName).NameAvailable;
 
+                //Delete a storage account with the given account name and a resource group
+               // DeleteStorageAccount(rgName, "storagesample10edb01d", storageMgmtClient);
+
+                //DeleteBlobContainer(rgName, "storagesample27636155", "blobcontainer1", storageMgmtClient);
+
+                //await CheckFile(rgName, "storagesample27636155", "provisioningscript-v2-3-0", "setup.ps1");
+
+                //await copyBlob("https://provisioningscript.blob.core.windows.net", "https://copystorageaccounttest.blob.core.windows.net");
+
+                Uri uri = await GenerateSASToken(rgName, "provisioningscript", "provisioningscript-v2-3-0", "setup.ps1");
+                Console.WriteLine("Uri: " + uri.ToString());
+
+                Console.WriteLine("End");
                 Console.ReadLine();
             }
             catch(Exception e)
             {
+                Console.WriteLine("catch");
                 Console.WriteLine(e.Message);
                 Console.ReadLine();
             }
@@ -190,6 +213,205 @@ namespace AzureStorageNew
             Console.WriteLine("Deleting a storage account...");
             storageMgmtClient.StorageAccounts.Delete(rgname, acctName);
             Console.WriteLine("Storage account " + acctName + " deleted");
+        }
+
+        /// <summary>
+        /// Create a new blob container. If one already exists then the request still succeeds
+        /// </summary>
+        /// <param name="rgname">Resource Group Name</param>
+        /// <param name="acctName">Account Name</param>
+        /// <param name="containerName"></param>
+        /// <param name="storageMgmtClient">Storage Management Client</param>
+        private static void CreateBlobContainer(string rgname, string acctName, string containerName, StorageManagementClient storageMgmtClient)
+        {
+            Console.WriteLine("Creating a blob container...");
+            var blobContainer = storageMgmtClient.BlobContainers.Create(rgname, acctName, containerName);
+            Console.WriteLine("Blob container created with name " + blobContainer.Name);
+        }
+
+        /// <summary>
+        /// Deletes a blob container for the specified container name
+        /// </summary>
+        /// <param name="rgname"></param>
+        /// <param name="acctName"></param>
+        /// <param name="containerName"></param>
+        /// <param name="storageMgmtClient"></param>
+        private static void DeleteBlobContainer(string rgname, string acctName, string containerName, StorageManagementClient storageMgmtClient)
+        {
+            Console.WriteLine("Deleting a blob container...");
+            storageMgmtClient.BlobContainers.Delete(rgname, acctName, containerName);
+            Console.WriteLine("Blob container " + containerName + " deleted");
+        }
+
+        private static async Task CheckFile(string rgname, string acctName, string containerName, string fileName)
+        {
+            Console.WriteLine("checking file...");
+            Uri blobContainerUri = new Uri("https://provisioningscript.blob.core.windows.net/provisioningscript-v2-3-0");
+            BlobContainerClient container = new BlobContainerClient(blobContainerUri);
+            //bool containerExist = false;
+            //containerExist = await container.ExistsAsync();
+            //try
+            //{
+            //    containerExist = await container.ExistsAsync();
+            //}
+            //catch (RequestFailedException ex)
+            //{
+            //    Console.WriteLine("RequestFailedException");
+            //}
+
+            //if (!containerExist)
+            //{
+            //    Console.WriteLine("containerExist: false");
+            //}
+
+            BlobClient blobClient = container.GetBlobClient(fileName);
+            Console.WriteLine("blobClient");
+            bool blobExist = false;
+            try
+            {
+                blobExist = await blobClient.ExistsAsync();
+            }
+            catch(RequestFailedException ex)
+            {
+                // AuthenticationFailed, NoAuthenticationInformation(no sas token for blobContainerUri)
+                Console.WriteLine("RequestFailedException: " + ex.ErrorCode);
+                // Service request failed.
+                Console.WriteLine("RequestFailedException: " + ex.Message);
+            }
+            Console.WriteLine("blobExist: " + blobExist);
+            if (!blobExist)
+            {
+                Console.WriteLine("The " + fileName + " doesn't exist");
+            } 
+            else
+            {
+                Console.WriteLine("blobExist");
+            }
+        }
+
+        private static async Task copyBlob(string sourceStorageAccountURL, string destStorageAccountURL)
+        {
+            Console.WriteLine("copying blobs...");
+            //way1:
+            Uri sourceBlobContainerUri = new Uri(sourceStorageAccountURL);
+            //storage account level SAS
+            string SASToken1 = "";
+            AzureSasCredential sas1 = new AzureSasCredential(SASToken1);
+            BlobServiceClient sourceBlobServiceClient = new BlobServiceClient(sourceBlobContainerUri, sas1);
+
+            Uri destBlobContainerUri = new Uri(destStorageAccountURL);
+            string SASToken2 = "";
+            AzureSasCredential sas2 = new AzureSasCredential(SASToken2);
+            BlobServiceClient destBlobServiceClient = new BlobServiceClient(destBlobContainerUri, sas2);
+
+            BlobContainerClient sourceContainer = sourceBlobServiceClient.GetBlobContainerClient("provisioningscript-v2-3-0");
+            BlobContainerClient destContainer = destBlobServiceClient.GetBlobContainerClient("copycontainer");
+
+            //way2:AuthorizationPermissionMismatch
+            
+            //Uri sourceBlobContainerUri = new Uri("https://provisioningscript.blob.core.windows.net/provisioningscript-v2-3-0?sp=r&st=2021-07-21T16:46:02Z&se=2021-07-23T00:46:02Z&spr=https&sv=2020-08-04&sr=c&sig=CZkBhs9InUzIZESyZGYaVqPM7XSXGiWePHmGtR%2FLCUo%3D");
+            //BlobContainerClient sourceContainer = new BlobContainerClient(sourceBlobContainerUri);
+
+            ////var sourceBlobs = sourceContainer.GetBlobs();
+
+            //Uri destBlobContainerUri = new Uri("https://copystorageaccounttest.blob.core.windows.net/copycontainer?sp=r&st=2021-07-21T16:47:56Z&se=2021-07-23T00:47:56Z&spr=https&sv=2020-08-04&sr=c&sig=EEDvtnwvxlXourpT5lrJdCtbcTySSVdxuWrbvAGfOI4%3D");
+            //BlobContainerClient destContainer = new BlobContainerClient(destBlobContainerUri);
+
+
+            ////var sourceBlobClient = sourceContainer.GetBlobClient("setup.ps1");
+            ////sourceBlobClient.GenerateSasUri();
+            
+            Uri sourceBlobUri = new Uri("https://provisioningscript.blob.core.windows.net/provisioningscript-v2-3-0/setup.ps1");
+            var destBlobClient = destContainer.GetBlobClient("setup.ps1");
+
+            CopyFromUriOperation status;
+            status = await destBlobClient.StartCopyFromUriAsync(sourceBlobUri);
+            //try 
+            //{
+            //    status = await destBlobClient.StartCopyFromUriAsync(sourceBlobUri);
+            //}
+            //// no sas token for the uri
+            //catch(RequestFailedException ex)
+            //{
+            //    // CannotVerifyCopySource
+            //    Console.WriteLine("RequestFailedException: " + ex.ErrorCode);
+            //    //  Server failed to authenticate the request. Please refer to the information in the www-authenticate header.
+            //    Console.WriteLine("RequestFailedException: " + ex.Message);
+            //    // 401
+            //    Console.WriteLine("RequestFailedException: " + ex.Status);
+            //}
+
+            //foreach (var blob in sourceBlobs)
+            //{
+            //    Console.WriteLine("start copying each blob: " + blob.Name);
+            //    var sourceBlobClient = sourceContainer.GetBlobClient(blob.Name);
+            //    var destBlobClient = destContainer.GetBlobClient(blob.Name);
+            //    string uri = "https://provisioningscript.blob.core.windows.net/provisioningscript-v2-3-0/" + blob.Name + "?";
+            //    string sastoken = "sp=r&st=2021-07-20T22:11:49Z&se=2021-07-21T06:11:49Z&spr=https&sv=2020-08-04&sr=b&sig=bgRlxh1xp1u%2FWaOgC%2BygecZEobPOUJ0Chs1gVal9aNM%3D";
+            //    var sourceBlobUri = new Uri(uri + sastoken);
+            //    //var sourceBlobUri = sourceBlobClient.Uri;
+            //    Console.WriteLine("sourceBlobUri: " + sourceBlobUri.AbsoluteUri);
+            //    // await destBlobClient.StartCopyFromUriAsync(sourceBlobUri);
+            //    CopyFromUriOperation status = await destBlobClient.StartCopyFromUriAsync(sourceBlobUri);
+            //    if (!status.HasCompleted)
+            //    {
+            //        Console.WriteLine("Blob failed to copy over");
+            //    }
+            //}
+        }
+
+        private static async Task<Uri> GenerateSASToken(string rgname, string acctName, string containerName, string blobName)
+        {
+            Console.WriteLine("Generating sas token...");
+            string blobEndpoint = string.Format("https://{0}.blob.core.windows.net", acctName);
+            Console.WriteLine("blobEndpoint: " + blobEndpoint);
+
+            BlobServiceClient blobClient = new BlobServiceClient(new Uri(blobEndpoint),
+                                                     new DefaultAzureCredential());
+            Console.WriteLine("blobClient");
+
+            Azure.Storage.Blobs.Models.UserDelegationKey key = await blobClient.GetUserDelegationKeyAsync(DateTimeOffset.UtcNow,
+                                                                   DateTimeOffset.UtcNow.AddDays(7));
+            Console.WriteLine("key");
+            // Read the key's properties.
+            Console.WriteLine("User delegation key properties:");
+            Console.WriteLine("Key signed start: {0}", key.SignedStartsOn);
+            Console.WriteLine("Key signed expiry: {0}", key.SignedExpiresOn);
+            Console.WriteLine("Key signed object ID: {0}", key.SignedObjectId);
+            Console.WriteLine("Key signed tenant ID: {0}", key.SignedTenantId);
+            Console.WriteLine("Key signed service: {0}", key.SignedService);
+            Console.WriteLine("Key signed version: {0}", key.SignedVersion);
+
+            // Create a SAS token that's also valid for 7 days.
+            BlobSasBuilder sasBuilder = new BlobSasBuilder()
+            {
+                BlobContainerName = containerName,
+                BlobName = blobName,
+                Resource = "b",
+                StartsOn = DateTimeOffset.UtcNow,
+                ExpiresOn = DateTimeOffset.UtcNow.AddDays(7)
+            };
+
+            Console.WriteLine("sasBuilder");
+
+            // Specify read and write permissions for the SAS.
+            sasBuilder.SetPermissions(BlobSasPermissions.Read |
+                                      BlobSasPermissions.Write);
+            Console.WriteLine("SetPermissions");
+
+            BlobSasQueryParameters sasToken = sasBuilder.ToSasQueryParameters(key, acctName);
+            Console.WriteLine("sasToken");
+
+            // Add the SAS token to the blob URI.
+            BlobUriBuilder blobUriBuilder = new BlobUriBuilder(blobClient.Uri)
+            {
+                // Specify the user delegation key.
+                Sas = sasBuilder.ToSasQueryParameters(key, acctName)
+            };
+            Console.WriteLine("blobUriBuilder");
+            Console.WriteLine("Blob user delegation SAS URI: {0}", blobUriBuilder);
+            Console.WriteLine("sasToken: " + sasToken.ToString());
+            return blobUriBuilder.ToUri();
         }
 
         /// <summary>
